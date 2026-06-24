@@ -1,15 +1,34 @@
 'use client'
 
-import { useState } from 'react'
 import { useAppStore } from '@/stores/app-store'
 
 interface AudioPlayerProps {
   mini?: boolean
+  isPlaying?: boolean
+  label?: string
+  onPlayPause?: () => void
+  onVolumeChange?: (v: number) => void
 }
 
-export function AudioPlayer({ mini = false }: AudioPlayerProps) {
-  const [isPlaying, setIsPlaying] = useState(true)
+export function AudioPlayer({
+  mini = false,
+  isPlaying = false,
+  label,
+  onPlayPause,
+  onVolumeChange,
+}: AudioPlayerProps) {
   const volume = useAppStore((s) => s.volume)
+  const setVolume = useAppStore((s) => s.setVolume)
+
+  const handleVolumeClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const pct = Math.round(((e.clientX - rect.left) / rect.width) * 100)
+    const clamped = Math.max(0, Math.min(100, pct))
+    setVolume(clamped)
+    onVolumeChange?.(clamped)
+  }
+
+  const streamLabel = label ?? 'Audio Stream'
 
   if (mini) {
     return (
@@ -29,19 +48,19 @@ export function AudioPlayer({ mini = false }: AudioPlayerProps) {
                 className="truncate text-sm font-bold text-[#00488d]"
                 style={{ fontFamily: 'Manrope, sans-serif' }}
               >
-                Spanish Audio Stream
+                {streamLabel}
               </p>
               <span className="flex-shrink-0 text-[10px] font-bold text-[#424752]">{volume}%</span>
             </div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#e7e8f0]">
-              <div
-                className="h-full rounded-full bg-[#00488d]"
-                style={{ width: `${volume}%` }}
-              />
+            <div
+              className="h-1.5 w-full cursor-pointer overflow-hidden rounded-full bg-[#e7e8f0]"
+              onClick={handleVolumeClick}
+            >
+              <div className="h-full rounded-full bg-[#00488d]" style={{ width: `${volume}%` }} />
             </div>
           </div>
           <button
-            onClick={() => setIsPlaying((p) => !p)}
+            onClick={onPlayPause}
             className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-[#00488d] text-white transition-transform active:scale-95"
           >
             <span
@@ -59,9 +78,7 @@ export function AudioPlayer({ mini = false }: AudioPlayerProps) {
   return (
     <div className="rounded-2xl bg-[#00488d] p-6 text-white shadow-xl">
       <div className="mb-4 flex items-center justify-between">
-        <span className="text-xs font-bold uppercase tracking-widest opacity-70">
-          Playing: Spanish
-        </span>
+        <span className="text-xs font-bold uppercase tracking-widest opacity-70">{streamLabel}</span>
         <span className="material-symbols-outlined text-[#93f2f2]">podcasts</span>
       </div>
 
@@ -72,7 +89,7 @@ export function AudioPlayer({ mini = false }: AudioPlayerProps) {
           </button>
 
           <button
-            onClick={() => setIsPlaying((p) => !p)}
+            onClick={onPlayPause}
             className="flex h-14 w-14 items-center justify-center rounded-full bg-white text-[#00488d] transition-transform active:scale-95"
           >
             <span
@@ -93,7 +110,10 @@ export function AudioPlayer({ mini = false }: AudioPlayerProps) {
             <span>VOLUME</span>
             <span>{volume}%</span>
           </div>
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/20">
+          <div
+            className="h-1.5 w-full cursor-pointer overflow-hidden rounded-full bg-white/20"
+            onClick={handleVolumeClick}
+          >
             <div className="h-full rounded-full bg-[#93f2f2]" style={{ width: `${volume}%` }} />
           </div>
         </div>

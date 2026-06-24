@@ -3,8 +3,8 @@
 import Link from 'next/link'
 
 const items = [
-  { icon: 'mic', label: 'Speak', href: '#', active: false },
-  { icon: 'hearing', label: 'Listen', href: '#', active: true },
+  { icon: 'mic', label: 'Speak', href: '/speaker', active: false },
+  { icon: 'hearing', label: 'Listen', href: '/listen', active: true },
   { icon: 'history', label: 'History', href: '#', active: false },
   { icon: 'bookmark', label: 'Saved', href: '#', active: false },
 ]

@@ -5,13 +5,14 @@ interface StreamCardProps {
   listeners?: string
   active?: boolean
   variant?: 'list' | 'card'
+  onClick?: () => void
 }
 
-export function StreamCard({ language, listeners, active = false, variant = 'list' }: StreamCardProps) {
+export function StreamCard({ language, listeners, active = false, variant = 'list', onClick }: StreamCardProps) {
   if (variant === 'card') {
     if (active) {
       return (
-        <div className="flex-shrink-0 w-36 p-4 rounded-xl bg-gradient-to-br from-[#00488d] to-[#005fb8] text-white shadow-lg cursor-pointer active:scale-95 transition-transform">
+        <div onClick={onClick} className="flex-shrink-0 w-36 p-4 rounded-xl bg-gradient-to-br from-[#00488d] to-[#005fb8] text-white shadow-lg cursor-pointer active:scale-95 transition-transform">
           <div className="flex justify-between items-start mb-6">
             <span
               className="material-symbols-outlined text-3xl"
@@ -33,7 +34,7 @@ export function StreamCard({ language, listeners, active = false, variant = 'lis
       )
     }
     return (
-      <div className="flex-shrink-0 w-36 p-4 rounded-xl bg-[#ecedf6] text-[#191c21] cursor-pointer active:scale-95 transition-transform">
+      <div onClick={onClick} className="flex-shrink-0 w-36 p-4 rounded-xl bg-[#ecedf6] text-[#191c21] cursor-pointer active:scale-95 transition-transform">
         <div className="flex justify-between items-start mb-6">
           <span className="material-symbols-outlined text-3xl text-[#005fb8]">play_circle</span>
         </div>
@@ -50,7 +51,7 @@ export function StreamCard({ language, listeners, active = false, variant = 'lis
   // List variant (desktop sidebar)
   if (active) {
     return (
-      <div className="active-glow flex cursor-pointer items-center justify-between rounded-xl border-2 border-[#00488d] bg-white p-4">
+      <div onClick={onClick} className="active-glow flex cursor-pointer items-center justify-between rounded-xl border-2 border-[#00488d] bg-white p-4">
         <div className="flex items-center gap-4">
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#90efef] text-[#006e6e]">
             <span className="material-symbols-outlined">translate</span>
@@ -71,7 +72,7 @@ export function StreamCard({ language, listeners, active = false, variant = 'lis
   }
 
   return (
-    <div className="flex cursor-pointer items-center justify-between rounded-xl bg-[#f2f3fb] p-4 transition-colors hover:bg-[#ecedf6]">
+    <div onClick={onClick} className="flex cursor-pointer items-center justify-between rounded-xl bg-[#f2f3fb] p-4 transition-colors hover:bg-[#ecedf6]">
       <div className="flex items-center gap-4">
         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#e1e2ea] text-[#424752]">
           <span className="material-symbols-outlined">translate</span>

@@ -3,8 +3,8 @@
 import Link from 'next/link'
 
 const navItems = [
-  { icon: 'mic', label: 'Speaker Mode', href: '#', active: false },
-  { icon: 'hearing', label: 'Listener Mode', href: '#', active: true },
+  { icon: 'mic', label: 'Speaker Mode', href: '/speaker', active: false },
+  { icon: 'hearing', label: 'Listener Mode', href: '/listen', active: true },
   { icon: 'history', label: 'History', href: '#', active: false },
   { icon: 'book', label: 'Library', href: '#', active: false },
 ]

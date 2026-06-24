@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: translate-poc-web
+    runtime: node
+    plan: free
+    # --include=dev garante que typescript/ts-node/@types sejam instalados no build
+    # mesmo que NODE_ENV=production esteja setado (necessário para next build + tsc).
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm start
+    # Render injeta PORT automaticamente; server.ts já lê process.env.PORT.
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
