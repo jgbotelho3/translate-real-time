@@ -1,4 +1,10 @@
-export function TopNav() {
+export function TopNav({
+  showSessionInfo = true,
+  showConnectivityIcons = true,
+}: {
+  showSessionInfo?: boolean
+  showConnectivityIcons?: boolean
+}) {
   return (
     <header className="sticky top-0 z-40 flex w-full items-center justify-between border-b border-transparent bg-[#f9f9ff]/90 px-4 py-3 backdrop-blur-sm md:px-8 md:py-4">
       {/* Mobile: brand logo */}
@@ -13,32 +19,38 @@ export function TopNav() {
       </div>
 
       {/* Desktop: session info */}
-      <div className="hidden items-center gap-4 md:flex">
-        <span
-          className="material-symbols-outlined text-[#006a6a]"
-          style={{ fontVariationSettings: "'FILL' 1" }}
-        >
-          sensors
-        </span>
-        <div className="flex flex-col">
-          <span className="text-xs font-medium uppercase tracking-wide text-[#424752]">
-            LIVE SESSION
+      {showSessionInfo && (
+        <div className="hidden items-center gap-4 md:flex">
+          <span
+            className="material-symbols-outlined text-[#006a6a]"
+            style={{ fontVariationSettings: "'FILL' 1" }}
+          >
+            sensors
           </span>
-          <span className="text-sm font-bold" style={{ fontFamily: 'Manrope, sans-serif' }}>
-            English to Spanish
-          </span>
+          <div className="flex flex-col">
+            <span className="text-xs font-medium tracking-wide text-[#424752] uppercase">
+              LIVE SESSION
+            </span>
+            <span className="text-sm font-bold" style={{ fontFamily: 'Manrope, sans-serif' }}>
+              English to Spanish
+            </span>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Right: icons + avatar */}
-      <div className="flex items-center gap-3">
+      <div className="ml-auto flex items-center gap-3">
         <div className="hidden items-center gap-3 text-slate-500 md:flex">
-          <span className="material-symbols-outlined cursor-pointer transition-colors hover:text-[#005FB8]">
-            wifi_tethering
-          </span>
-          <span className="material-symbols-outlined cursor-pointer transition-colors hover:text-[#005FB8]">
-            volume_up
-          </span>
+          {showConnectivityIcons && (
+            <>
+              <span className="material-symbols-outlined cursor-pointer transition-colors hover:text-[#005FB8]">
+                wifi_tethering
+              </span>
+              <span className="material-symbols-outlined cursor-pointer transition-colors hover:text-[#005FB8]">
+                volume_up
+              </span>
+            </>
+          )}
           <span className="material-symbols-outlined cursor-pointer transition-colors hover:text-[#005FB8]">
             settings
           </span>

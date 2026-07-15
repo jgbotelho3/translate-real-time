@@ -9,7 +9,7 @@ export default function HomePage() {
       <Sidebar />
 
       <main className="flex flex-1 flex-col md:ml-64">
-        <TopNav />
+        <TopNav showSessionInfo={false} showConnectivityIcons={false} />
 
         <div className="flex flex-1 flex-col items-center justify-center gap-6 px-4 pb-44 pt-10 text-center md:p-8">
           <span
