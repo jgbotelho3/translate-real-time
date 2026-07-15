@@ -8,11 +8,17 @@ export const runtime = 'nodejs'
 // See src/lib/session-store.ts for rationale.
 
 export async function POST(request: Request) {
-  let body: { languages?: string[] }
+  let body: { languages?: string[]; code?: string }
   try {
     body = await request.json()
   } catch {
     return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+  }
+
+  // Gate broadcasting behind the Speaker Mode access code (server-only env).
+  const expectedCode = process.env.SPEAKER_ACCESS_CODE
+  if (!expectedCode || body.code !== expectedCode) {
+    return NextResponse.json({ error: 'Invalid access code' }, { status: 403 })
   }
 
   const languages = Array.isArray(body.languages) && body.languages.length > 0 ? body.languages : ['es']

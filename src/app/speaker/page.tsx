@@ -5,14 +5,31 @@ import { Sidebar } from '@/components/sidebar'
 import { TopNav } from '@/components/top-nav'
 import { AudioVisualizer } from '@/components/audio-visualizer'
 import { BottomNav } from '@/components/bottom-nav'
+import { SpeakerAccessGate } from '@/components/speaker-access-gate'
 import { useTranslationSession } from '@/hooks/use-translation-session'
 import { SUPPORTED_LANGUAGES } from '@/lib/languages'
 
+const ACCESS_CODE_STORAGE_KEY = 'speaker-access-code'
+
 export default function SpeakerPage() {
   const [selectedLanguages, setSelectedLanguages] = useState<string[]>(['pt', 'en', 'es'])
+  // Verified access code — restored from sessionStorage so a refresh keeps the
+  // speaker unlocked within the same browser session.
+  const [accessCode, setAccessCode] = useState<string>(() =>
+    typeof window !== 'undefined' ? sessionStorage.getItem(ACCESS_CODE_STORAGE_KEY) ?? '' : '',
+  )
 
   const { sessionId, isStreaming, isCapturing, isConnected, error, micFrequencies, startSession, stopSession } =
-    useTranslationSession(selectedLanguages)
+    useTranslationSession(selectedLanguages, accessCode)
+
+  const handleUnlock = (code: string) => {
+    sessionStorage.setItem(ACCESS_CODE_STORAGE_KEY, code)
+    setAccessCode(code)
+  }
+
+  if (!accessCode) {
+    return <SpeakerAccessGate onUnlock={handleUnlock} />
+  }
 
   const listenerUrl = sessionId ? `${typeof window !== 'undefined' ? window.location.origin : ''}/listen?session=${sessionId}` : null
 

@@ -11,3 +11,5 @@ services:
     envVars:
       - key: OPENAI_API_KEY
         sync: false
+      - key: SPEAKER_ACCESS_CODE
+        sync: false

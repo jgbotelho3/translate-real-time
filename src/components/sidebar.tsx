@@ -1,12 +1,11 @@
 'use client'
 
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 
 const navItems = [
-  { icon: 'mic', label: 'Speaker Mode', href: '/speaker', active: false },
-  { icon: 'hearing', label: 'Listener Mode', href: '/listen', active: true },
-  { icon: 'history', label: 'History', href: '#', active: false },
-  { icon: 'book', label: 'Library', href: '#', active: false },
+  { icon: 'home', label: 'Home', href: '/' },
+  { icon: 'mic', label: 'Speaker Mode', href: '/speaker' },
 ]
 
 const bottomItems = [
@@ -15,6 +14,7 @@ const bottomItems = [
 ]
 
 export function Sidebar() {
+  const pathname = usePathname()
   return (
     <aside className="fixed left-0 top-0 hidden h-full w-64 flex-col bg-[#ecedf6] p-4 text-sm md:flex">
       <div className="mb-8 px-3">
@@ -29,7 +29,7 @@ export function Sidebar() {
             key={item.label}
             href={item.href}
             className={
-              item.active
+              pathname === item.href
                 ? 'flex items-center gap-3 rounded-lg bg-white p-3 font-bold text-[#005FB8] transition-all'
                 : 'flex items-center gap-3 rounded-lg p-3 text-slate-600 transition-all hover:bg-white/50'
             }
@@ -41,11 +41,6 @@ export function Sidebar() {
       </nav>
 
       <div className="mt-auto space-y-1 border-t border-[#c2c6d4]/20 pt-4">
-        <div className="mb-4 rounded-xl bg-[#005fb8] p-4 text-[#cadcff]">
-          <p className="mb-2 text-xs font-bold">Upgrade to Pro</p>
-          <p className="text-[10px] opacity-80">Unlimited translations and high-fidelity audio.</p>
-        </div>
-
         {bottomItems.map((item) => (
           <Link
             key={item.label}

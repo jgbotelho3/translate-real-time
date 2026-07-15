@@ -7,7 +7,7 @@ import { useAppStore } from '@/stores/app-store'
 import { SUPPORTED_LANGUAGES } from '@/lib/languages'
 import type { TranslationStream } from '@/types'
 
-export function useTranslationSession(selectedLanguageCodes: string[]) {
+export function useTranslationSession(selectedLanguageCodes: string[], accessCode: string) {
   const [isStreaming, setIsStreaming] = useState(false)
   const [sessionId, setSessionIdLocal] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -37,7 +37,7 @@ export function useTranslationSession(selectedLanguageCodes: string[]) {
       const res = await fetch('/api/session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ languages: selectedLanguageCodes }),
+        body: JSON.stringify({ languages: selectedLanguageCodes, code: accessCode }),
       })
 
       if (!res.ok) {
@@ -96,6 +96,7 @@ export function useTranslationSession(selectedLanguageCodes: string[]) {
     }
   }, [
     selectedLanguageCodes,
+    accessCode,
     socketRef,
     startCapture,
     setSessionId,

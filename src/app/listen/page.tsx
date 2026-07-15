@@ -49,7 +49,6 @@ function ListenPageContent() {
   useEffect(() => { activeLanguageCodeRef.current = activeLanguageCode }, [activeLanguageCode])
   const [analyserData, setAnalyserData] = useState<Uint8Array | null>(null)
   const analyserIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const [needsGesture, setNeedsGesture] = useState(false)
 
   // Sync socket connection to store
   useEffect(() => {
@@ -101,11 +100,10 @@ function ListenPageContent() {
         console.log(`[listen] audio:chunk #${audioChunkCount} received — lang: ${payload.languageCode}, active: ${activeLang}, match: ${payload.languageCode === activeLang}`)
       }
       if (payload.languageCode === activeLang) {
+        // Enqueue for seamless playback. If the AudioContext hasn't been unlocked
+        // yet (no user gesture), chunks buffer and drain automatically once the
+        // listener selects a stream or presses play.
         audioPlayerRef.current.enqueueChunk(payload.pcm16Base64)
-        // Prompt for user gesture if context is still suspended after first chunk
-        if (!audioPlayerRef.current.isPlaying) {
-          setNeedsGesture(true)
-        }
       }
     }
 
@@ -183,6 +181,9 @@ function ListenPageContent() {
     (code: string) => {
       setActiveLanguageCode(code)
       audioPlayer.reset()
+      // Unlock the AudioContext within this click gesture so incoming chunks for
+      // the selected stream start playing automatically and continuously.
+      audioPlayer.ensureContext()
       setAnalyserData(null)
       clearTranscripts()
 
@@ -195,7 +196,6 @@ function ListenPageContent() {
 
   const handlePlayPause = useCallback(() => {
     audioPlayer.ensureContext()
-    setNeedsGesture(false)
     if (audioPlayer.isPlaying) {
       audioPlayer.pause()
     } else {
@@ -227,22 +227,6 @@ function ListenPageContent() {
 
   return (
     <div className="flex min-h-screen bg-[#f9f9ff] text-[#191c21]">
-      {/* Autoplay unlock overlay — shown when audio arrives but browser needs a gesture */}
-      {needsGesture && (
-        <div
-          className="fixed inset-0 z-50 flex cursor-pointer flex-col items-center justify-center bg-black/60 backdrop-blur-sm"
-          onClick={handlePlayPause}
-        >
-          <div className="flex flex-col items-center gap-4 rounded-2xl bg-white px-10 py-8 shadow-2xl">
-            <span className="material-symbols-outlined text-6xl text-[#00488d]" style={{ fontVariationSettings: "'FILL' 1" }}>
-              volume_up
-            </span>
-            <p className="text-lg font-bold text-[#191c21]">Toque para ouvir</p>
-            <p className="text-sm text-[#424752]">O áudio está chegando — clique para iniciar a reprodução.</p>
-          </div>
-        </div>
-      )}
-
       <Sidebar />
 
       <main className="flex flex-1 flex-col md:ml-64">
