@@ -384,6 +384,13 @@ function cleanupSession(sessionId: string | undefined, ioServer: SocketIOServer)
 // ─── Start everything ────────────────────────────────────────────────────────
 app.prepare().then(() => {
   httpServer.on('request', (req, res) => {
+    // Let Socket.IO's own Engine.IO handler own the /socket.io/ path. This
+    // listener is registered after the SocketIOServer, so both fire per request;
+    // without this guard, Next would also try to handle the HTTP long-polling
+    // requests and corrupt the response — which breaks the connection behind
+    // proxies (e.g. Render) that fall back from WebSocket to polling.
+    if (req.url?.startsWith('/socket.io/')) return
+
     // Debug endpoint — inspect in-memory session state without Socket.IO admin UI
     if (req.method === 'GET' && req.url === '/api/debug-session') {
       const payload = {

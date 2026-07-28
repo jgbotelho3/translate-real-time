@@ -11,8 +11,15 @@ export function useSocket(namespace: Namespace) {
 
   useEffect(() => {
     const socket = io(namespace, {
-      transports: ['websocket', 'polling'],
+      // polling first, then upgrade to websocket — more robust behind proxies
+      // (e.g. Render) where a direct websocket handshake can be flaky. If the
+      // upgrade fails, the connection stays alive on long-polling instead of dropping.
+      transports: ['polling', 'websocket'],
       autoConnect: true,
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
     })
 
     socketRef.current = socket
