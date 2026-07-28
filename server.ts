@@ -24,15 +24,29 @@ const dev = process.env.NODE_ENV !== 'production'
 // ─── OpenAI client (uses OPENAI_API_KEY from env) ───────────────────────────
 const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
+// ─── Forced-commit streaming translation ────────────────────────────────────
+// Instead of waiting for a VAD end-of-turn, we periodically commit the buffered
+// speech and ask for a translation, so a long monologue is translated in short
+// slices that start while the speaker is still talking.
+const FORCED_COMMIT_INTERVAL_MS = 1200 // how often to flush accumulated speech
+const MIN_COMMIT_MS = 300 // don't commit less than this (OpenAI requires ≥100ms)
+
 // ─── In-memory session registry ─────────────────────────────────────────────
-// Each session has a map of languageCode → RealtimeWS connection
+// Each session has a map of languageCode → per-language client state
+interface ClientState {
+  rt: OpenAIRealtimeWS
+  bufferedMs: number // audio appended since this client's last commit
+  isResponding: boolean // a translation response is currently in flight
+}
+
 interface RealtimeSession {
   sessionId: string
-  clients: Map<string, OpenAIRealtimeWS>
+  clients: Map<string, ClientState>
   speakerSocketId: string
   languages: string[]
   audioChunksSent: number
   audioChunksFromOpenAI: Record<string, number>
+  flushTimer?: ReturnType<typeof setInterval>
 }
 
 const sessions = new Map<string, RealtimeSession>()
@@ -68,7 +82,7 @@ speakerNS.on('connection', (socket) => {
     sessionStore.delete(sessionId)
 
     // Create one RealtimeWS client per target language (the "fork")
-    const clients = new Map<string, OpenAIRealtimeWS>()
+    const clients = new Map<string, ClientState>()
 
     const session: RealtimeSession = {
       sessionId,
@@ -96,6 +110,9 @@ speakerNS.on('connection', (socket) => {
           openaiClient,
         )
 
+        // Per-client state drives the forced-commit loop below.
+        const state: ClientState = { rt: rtClient, bufferedMs: 0, isResponding: false }
+
         // Log ALL events from OpenAI for diagnosis
         ;(rtClient as any).on('event', (event: any) => {
           console.log(`[realtime:${langCode}] ← event: ${event?.type}`)
@@ -117,13 +134,11 @@ speakerNS.on('connection', (socket) => {
                 input: {
                   format: { type: 'audio/pcm', rate: 24000 },
                   transcription: { model: 'whisper-1' },
-                  turn_detection: {
-                    type: 'server_vad',
-                    threshold: 0.5,
-                    prefix_padding_ms: 300,
-                    silence_duration_ms: 500,
-                    create_response: true,
-                  },
+                  // Manual turn control — VAD disabled. We commit the buffered
+                  // speech on a timer (FORCED_COMMIT_INTERVAL_MS) and request a
+                  // translation for each slice, so a long monologue is translated
+                  // while the speaker is still talking instead of only at a pause.
+                  turn_detection: null,
                 },
                 output: {
                   format: { type: 'audio/pcm', rate: 24000 },
@@ -150,10 +165,12 @@ speakerNS.on('connection', (socket) => {
         })
 
         rtClient.on('response.created', () => {
+          state.isResponding = true
           console.log(`[realtime:${langCode}] response started`)
         })
 
         rtClient.on('response.done', (event) => {
+          state.isResponding = false
           const usage = (event as any)?.response?.usage
           console.log(`[realtime:${langCode}] response.done — output items: ${(event as any)?.response?.output?.length ?? 0}`, usage ?? '')
         })
@@ -196,15 +213,34 @@ speakerNS.on('connection', (socket) => {
         })
 
         rtClient.on('error', (err) => {
+          // Reset so a failed response doesn't deadlock the forced-commit loop.
+          state.isResponding = false
           console.error(`[realtime:${langCode}] error:`, JSON.stringify(err))
         })
 
-        clients.set(langCode, rtClient)
+        clients.set(langCode, state)
         console.log(`[realtime:${langCode}] client created`)
       } catch (err) {
         console.error(`[speaker] failed to create client for ${langCode}:`, err)
       }
     }
+
+    // Forced-commit loop: every interval, for each language client that isn't
+    // mid-response and has enough buffered speech, commit the slice and ask for
+    // its translation. Self-paced — a busy client just keeps accumulating audio.
+    session.flushTimer = setInterval(() => {
+      for (const [, state] of session.clients) {
+        if (state.isResponding || state.bufferedMs < MIN_COMMIT_MS) continue
+        try {
+          state.rt.send({ type: 'input_audio_buffer.commit' } as any)
+          state.rt.send({ type: 'response.create' } as any)
+          state.isResponding = true
+          state.bufferedMs = 0
+        } catch {
+          // client may have disconnected
+        }
+      }
+    }, FORCED_COMMIT_INTERVAL_MS)
 
     // Emit session status only after all RTClients are created
     io.of('/listener').to(`session:${sessionId}`).emit('session:status', {
@@ -231,12 +267,15 @@ speakerNS.on('connection', (socket) => {
       console.log(`[speaker] audio chunk #${session.audioChunksSent} → ${session.clients.size} RTClient(s) (${audioBuffer.length} bytes)`)
     }
 
-    for (const [, client] of session.clients) {
+    // PCM16 mono @ 24kHz → ms = bytes / 2 samples / 24000 * 1000
+    const chunkMs = (audioBuffer.length / 2 / 24000) * 1000
+    for (const [, state] of session.clients) {
       try {
-        client.send({
+        state.rt.send({
           type: 'input_audio_buffer.append',
           audio: base64,
         })
+        state.bufferedMs += chunkMs
       } catch {
         // client may have disconnected
       }
@@ -323,9 +362,10 @@ function cleanupSession(sessionId: string | undefined, ioServer: SocketIOServer)
   if (!session) return
 
   console.log('[server] cleaning up session:', sessionId)
-  for (const [langCode, client] of session.clients) {
+  if (session.flushTimer) clearInterval(session.flushTimer)
+  for (const [langCode, state] of session.clients) {
     try {
-      client.close({ code: 1000, reason: 'Session ended' })
+      state.rt.close({ code: 1000, reason: 'Session ended' })
     } catch {
       // ignore
     }

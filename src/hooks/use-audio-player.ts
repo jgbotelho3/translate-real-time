@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { base64Pcm16ToFloat32 } from '@/lib/audio-utils'
 
 const SAMPLE_RATE = 24000 // Must match OpenAI Realtime API output
-const PRE_BUFFER_DURATION = 0.2 // 200ms jitter buffer before playback starts
+const PRE_BUFFER_DURATION = 0.12 // 120ms jitter buffer before playback starts (trimmed for lower latency)
 
 export function useAudioPlayer(volume: number) {
   const [isPlaying, setIsPlaying] = useState(false)
