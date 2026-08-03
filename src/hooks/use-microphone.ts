@@ -3,18 +3,20 @@
 import { useCallback, useRef, useState } from 'react'
 import { float32ToBase64Pcm16 } from '@/lib/audio-utils'
 
-const SAMPLE_RATE = 24000 // Required by OpenAI Realtime API
 // createScriptProcessor requires a power-of-two buffer size (256–16384).
-// We use 4096 and accumulate samples to emit ~100ms chunks (2400 samples).
+// We use 4096 and accumulate samples to emit ~100ms chunks.
 const BUFFER_SIZE = 4096 // must be power of two
-const CHUNK_SIZE = 2400 // 100ms at 24kHz
+const DEFAULT_SAMPLE_RATE = 24000 // OpenAI Realtime; Gemini Live Translate uses 16000
 
 interface UseMicrophoneOptions {
   onAudioChunk: (base64: string) => void
   onAnalyserData?: (data: Uint8Array) => void
+  // Input sample rate — depends on the provider. The AudioContext resamples the
+  // mic to this rate natively (no manual DSP). Fixed at capture start.
+  sampleRate?: number
 }
 
-export function useMicrophone({ onAudioChunk, onAnalyserData }: UseMicrophoneOptions) {
+export function useMicrophone({ onAudioChunk, onAnalyserData, sampleRate = DEFAULT_SAMPLE_RATE }: UseMicrophoneOptions) {
   const [isCapturing, setIsCapturing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -31,8 +33,9 @@ export function useMicrophone({ onAudioChunk, onAnalyserData }: UseMicrophoneOpt
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
       streamRef.current = stream
 
-      const audioContext = new AudioContext({ sampleRate: SAMPLE_RATE })
+      const audioContext = new AudioContext({ sampleRate })
       audioContextRef.current = audioContext
+      const chunkSize = Math.round(sampleRate / 10) // 100ms at the active sample rate
 
       const source = audioContext.createMediaStreamSource(stream)
 
@@ -59,10 +62,10 @@ export function useMicrophone({ onAudioChunk, onAnalyserData }: UseMicrophoneOpt
         merged.set(inputData, prev.length)
 
         let offset = 0
-        while (offset + CHUNK_SIZE <= merged.length) {
-          const chunk = merged.slice(offset, offset + CHUNK_SIZE)
+        while (offset + chunkSize <= merged.length) {
+          const chunk = merged.slice(offset, offset + chunkSize)
           onAudioChunk(float32ToBase64Pcm16(chunk))
-          offset += CHUNK_SIZE
+          offset += chunkSize
         }
         sampleBufferRef.current = merged.slice(offset)
       }
@@ -87,7 +90,7 @@ export function useMicrophone({ onAudioChunk, onAnalyserData }: UseMicrophoneOpt
       setError(message)
       console.error('[useMicrophone] error:', err)
     }
-  }, [onAudioChunk, onAnalyserData])
+  }, [onAudioChunk, onAnalyserData, sampleRate])
 
   const stopCapture = useCallback(() => {
     if (animFrameRef.current !== null) {

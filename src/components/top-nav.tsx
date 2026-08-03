@@ -1,3 +1,5 @@
+import { ProviderBadge } from './provider-badge'
+
 export function TopNav({
   showSessionInfo = true,
   showConnectivityIcons = true,
@@ -38,8 +40,9 @@ export function TopNav({
         </div>
       )}
 
-      {/* Right: icons + avatar */}
+      {/* Right: provider badge + icons + avatar */}
       <div className="ml-auto flex items-center gap-3">
+        <ProviderBadge />
         <div className="hidden items-center gap-3 text-slate-500 md:flex">
           {showConnectivityIcons && (
             <>

@@ -6,6 +6,7 @@ import { TopNav } from '@/components/top-nav'
 import { AudioVisualizer } from '@/components/audio-visualizer'
 import { BottomNav } from '@/components/bottom-nav'
 import { SpeakerAccessGate } from '@/components/speaker-access-gate'
+import { ProviderSelect } from '@/components/provider-select'
 import { useTranslationSession } from '@/hooks/use-translation-session'
 import { SUPPORTED_LANGUAGES } from '@/lib/languages'
 
@@ -70,6 +71,9 @@ export default function SpeakerPage() {
               </div>
             )}
           </div>
+
+          {/* Provider selector — locked once broadcasting starts */}
+          <ProviderSelect disabled={isStreaming} />
 
           {/* Language selector */}
           <div>

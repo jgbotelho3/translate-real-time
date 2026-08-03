@@ -13,3 +13,9 @@ services:
         sync: false
       - key: SPEAKER_ACCESS_CODE
         sync: false
+      # Translation provider: openai | gemini (inlined into the client at build time)
+      - key: NEXT_PUBLIC_TRANSLATION_PROVIDER
+        value: gemini
+      # Required when provider=gemini
+      - key: GEMINI_API_KEY
+        sync: false

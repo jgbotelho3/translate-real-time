@@ -43,9 +43,12 @@ export interface SessionStatus {
   activeLanguages: string[]
 }
 
+export type TranslationProvider = 'openai' | 'gemini'
+
 export interface SessionJoinPayload {
   sessionId: string
   targetLanguages: string[]
+  provider?: TranslationProvider
 }
 
 export interface ListenerJoinPayload {

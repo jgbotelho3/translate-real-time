@@ -16,6 +16,9 @@ export function useTranslationSession(selectedLanguageCodes: string[], accessCod
   const { socketRef, isConnected } = useSocket('/speaker')
 
   const { setSessionId, setSessionMode, setSpeakerIsLive, setAvailableStreams, setConnected } = useAppStore()
+  const provider = useAppStore((s) => s.translationProvider)
+  // Gemini Live Translate wants 16kHz input; OpenAI Realtime wants 24kHz.
+  const sampleRate = provider === 'gemini' ? 16000 : 24000
 
   const onAudioChunk = useCallback(
     (base64: string) => {
@@ -28,7 +31,11 @@ export function useTranslationSession(selectedLanguageCodes: string[], accessCod
     setMicFrequencies(data)
   }, [])
 
-  const { isCapturing, error: micError, startCapture, stopCapture } = useMicrophone({ onAudioChunk, onAnalyserData })
+  const { isCapturing, error: micError, startCapture, stopCapture } = useMicrophone({
+    onAudioChunk,
+    onAnalyserData,
+    sampleRate,
+  })
 
   const startSession = useCallback(async () => {
     setError(null)
@@ -82,6 +89,7 @@ export function useTranslationSession(selectedLanguageCodes: string[], accessCod
       socketRef.current?.emit('speaker:join', {
         sessionId: newId,
         targetLanguages: selectedLanguageCodes,
+        provider,
       })
 
       // 5. Start microphone capture
@@ -97,6 +105,7 @@ export function useTranslationSession(selectedLanguageCodes: string[], accessCod
   }, [
     selectedLanguageCodes,
     accessCode,
+    provider,
     socketRef,
     startCapture,
     setSessionId,

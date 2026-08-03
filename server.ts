@@ -7,46 +7,42 @@ import { createServer } from 'http'
 import next from 'next'
 import { Server as SocketIOServer } from 'socket.io'
 import OpenAI from 'openai'
-import { OpenAIRealtimeWS } from 'openai/realtime/ws'
-import { SUPPORTED_LANGUAGES } from './src/lib/languages'
+import { GoogleGenAI } from '@google/genai'
 import { sessionStore } from './src/lib/session-store'
+import { createTranslator, getTranslationProvider, type RealtimeTranslator } from './src/lib/translators'
 import type {
   SessionJoinPayload,
   ListenerJoinPayload,
   ListenerSelectPayload,
   AudioChunkPayload,
   TranscriptPayload,
+  TranslationProvider,
 } from './src/types'
 
 const port = parseInt(process.env.PORT || '3000', 10)
 const dev = process.env.NODE_ENV !== 'production'
 
-// ─── OpenAI client (uses OPENAI_API_KEY from env) ───────────────────────────
+// ─── Provider clients ────────────────────────────────────────────────────────
+// OpenAI is always constructed (cheap). Gemini is lazy — only built when the
+// active provider is gemini, so openai mode doesn't require GEMINI_API_KEY.
 const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
-// ─── Forced-commit streaming translation ────────────────────────────────────
-// Instead of waiting for a VAD end-of-turn, we periodically commit the buffered
-// speech and ask for a translation, so a long monologue is translated in short
-// slices that start while the speaker is still talking.
-const FORCED_COMMIT_INTERVAL_MS = 1200 // how often to flush accumulated speech
-const MIN_COMMIT_MS = 300 // don't commit less than this (OpenAI requires ≥100ms)
-
-// ─── In-memory session registry ─────────────────────────────────────────────
-// Each session has a map of languageCode → per-language client state
-interface ClientState {
-  rt: OpenAIRealtimeWS
-  bufferedMs: number // audio appended since this client's last commit
-  isResponding: boolean // a translation response is currently in flight
+let genaiClient: GoogleGenAI | null = null
+function getGenai(): GoogleGenAI {
+  if (!genaiClient) genaiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
+  return genaiClient
 }
 
+// ─── In-memory session registry ─────────────────────────────────────────────
+// Each session has a map of languageCode → provider-agnostic translator.
 interface RealtimeSession {
   sessionId: string
-  clients: Map<string, ClientState>
+  clients: Map<string, RealtimeTranslator>
   speakerSocketId: string
   languages: string[]
+  provider: TranslationProvider
   audioChunksSent: number
-  audioChunksFromOpenAI: Record<string, number>
-  flushTimer?: ReturnType<typeof setInterval>
+  audioChunksFromProvider: Record<string, number>
 }
 
 const sessions = new Map<string, RealtimeSession>()
@@ -81,168 +77,75 @@ speakerNS.on('connection', (socket) => {
     }
     sessionStore.delete(sessionId)
 
-    // Create one RealtimeWS client per target language (the "fork")
-    const clients = new Map<string, ClientState>()
+    // Provider is chosen by the speaker in the UI (falls back to env default).
+    const provider: TranslationProvider = payload.provider ?? getTranslationProvider()
+
+    // One translator per target language (the "fork").
+    const clients = new Map<string, RealtimeTranslator>()
 
     const session: RealtimeSession = {
       sessionId,
       clients,
       speakerSocketId: socket.id,
       languages: targetLanguages,
+      provider,
       audioChunksSent: 0,
-      audioChunksFromOpenAI: {},
+      audioChunksFromProvider: {},
     }
     sessions.set(sessionId, session)
     socket.data.sessionId = sessionId
 
+    console.log(`[speaker] translation provider: ${provider}`)
+
     for (const langCode of targetLanguages) {
-      const language = SUPPORTED_LANGUAGES.find((l) => l.code === langCode)
-      if (!language) continue
-
       try {
-        const apiKeyPreview = (openaiClient.apiKey ?? '').slice(0, 8) + '...'
-        console.log(`[realtime:${langCode}] creating RTClient — apiKey: ${apiKeyPreview}`)
-
-        // GA model — required for the GA-shaped session.update (type: 'realtime',
-        // nested audio.input/audio.output). The old preview model rejects it.
-        const rtClient = new OpenAIRealtimeWS(
-          { model: 'gpt-realtime' },
-          openaiClient,
+        const translator = createTranslator(
+          langCode,
+          provider,
+          {
+            onAudioDelta: (delta) => {
+              const chunk: AudioChunkPayload = { languageCode: langCode, pcm16Base64: delta }
+              io.of('/listener').to(`session:${sessionId}:${langCode}`).emit('audio:chunk', chunk)
+              const count = (session.audioChunksFromProvider[langCode] =
+                (session.audioChunksFromProvider[langCode] ?? 0) + 1)
+              if (count === 1 || count % 50 === 0) {
+                console.log(
+                  `[realtime:${langCode}] audio:chunk #${count} → listeners (${Buffer.from(delta, 'base64').length} bytes)`,
+                )
+              }
+            },
+            onOutputTranscript: (text) => {
+              const transcript: TranscriptPayload = {
+                languageCode: langCode,
+                original: '',
+                translated: text,
+                isFinal: true,
+              }
+              io.of('/listener').to(`session:${sessionId}:${langCode}`).emit('transcript:done', transcript)
+            },
+            onInputTranscript: (text) => {
+              const transcript: TranscriptPayload = {
+                languageCode: langCode,
+                original: text,
+                translated: '',
+                isFinal: true,
+              }
+              io.of('/listener').to(`session:${sessionId}:${langCode}`).emit('transcript:original', transcript)
+            },
+            onError: (err) => {
+              console.error(`[realtime:${langCode}] error:`, err)
+            },
+          },
+          { openaiClient, getGenai },
         )
-
-        // Per-client state drives the forced-commit loop below.
-        const state: ClientState = { rt: rtClient, bufferedMs: 0, isResponding: false }
-
-        // Log ALL events from OpenAI for diagnosis
-        ;(rtClient as any).on('event', (event: any) => {
-          console.log(`[realtime:${langCode}] ← event: ${event?.type}`)
-        })
-
-        // Configure session once connected
-        rtClient.on('session.created', () => {
-          // GA Realtime API (openai/realtime/ws → resources/realtime) uses a
-          // nested shape: audio.input / audio.output, output_modalities, and
-          // audio formats as objects ({ type: 'audio/pcm', rate: 24000 }).
-          // The send() helper's types are stricter than the protocol — cast as any.
-          rtClient.send({
-            type: 'session.update',
-            session: {
-              type: 'realtime',
-              output_modalities: ['audio'],
-              instructions: language.voicePrompt,
-              audio: {
-                input: {
-                  format: { type: 'audio/pcm', rate: 24000 },
-                  transcription: { model: 'whisper-1' },
-                  // Manual turn control — VAD disabled. We commit the buffered
-                  // speech on a timer (FORCED_COMMIT_INTERVAL_MS) and request a
-                  // translation for each slice, so a long monologue is translated
-                  // while the speaker is still talking instead of only at a pause.
-                  turn_detection: null,
-                },
-                output: {
-                  format: { type: 'audio/pcm', rate: 24000 },
-                  voice: 'coral',
-                },
-              },
-            } as any,
-          })
-          console.log(`[realtime:${langCode}] session configured`)
-        })
-
-        rtClient.on('session.updated', () => {
-          console.log(`[realtime:${langCode}] session.updated ✓`)
-        })
-
-        rtClient.on('input_audio_buffer.speech_started', () => {
-          console.log(`[realtime:${langCode}] 🎤 speech detected`)
-        })
-
-        rtClient.on('input_audio_buffer.speech_stopped', () => {
-          // No manual response.create — server VAD has create_response: true,
-          // so the response is generated automatically at end of speech.
-          console.log(`[realtime:${langCode}] 🔇 speech stopped — awaiting response`)
-        })
-
-        rtClient.on('response.created', () => {
-          state.isResponding = true
-          console.log(`[realtime:${langCode}] response started`)
-        })
-
-        rtClient.on('response.done', (event) => {
-          state.isResponding = false
-          const usage = (event as any)?.response?.usage
-          console.log(`[realtime:${langCode}] response.done — output items: ${(event as any)?.response?.output?.length ?? 0}`, usage ?? '')
-        })
-
-        // Forward translated audio chunks to listeners
-        rtClient.on('response.output_audio.delta', (event) => {
-          const chunk: AudioChunkPayload = {
-            languageCode: langCode,
-            pcm16Base64: event.delta,
-          }
-          const room = `session:${sessionId}:${langCode}`
-          io.of('/listener').to(room).emit('audio:chunk', chunk)
-          session.audioChunksFromOpenAI[langCode] = (session.audioChunksFromOpenAI[langCode] ?? 0) + 1
-          const count = session.audioChunksFromOpenAI[langCode]
-          if (count === 1 || count % 50 === 0) {
-            console.log(`[realtime:${langCode}] audio:chunk #${count} → room "${room}" (${Buffer.from(event.delta, 'base64').length} bytes)`)
-          }
-        })
-
-        // Forward transcripts to listeners
-        rtClient.on('response.output_audio_transcript.done', (event) => {
-          const transcript: TranscriptPayload = {
-            languageCode: langCode,
-            original: '', // filled by input transcription
-            translated: event.transcript ?? '',
-            isFinal: true,
-          }
-          io.of('/listener').to(`session:${sessionId}:${langCode}`).emit('transcript:done', transcript)
-        })
-
-        // Input audio transcription (the original speech)
-        rtClient.on('conversation.item.input_audio_transcription.completed', (event) => {
-          const transcript: TranscriptPayload = {
-            languageCode: langCode,
-            original: event.transcript ?? '',
-            translated: '',
-            isFinal: true,
-          }
-          io.of('/listener').to(`session:${sessionId}:${langCode}`).emit('transcript:original', transcript)
-        })
-
-        rtClient.on('error', (err) => {
-          // Reset so a failed response doesn't deadlock the forced-commit loop.
-          state.isResponding = false
-          console.error(`[realtime:${langCode}] error:`, JSON.stringify(err))
-        })
-
-        clients.set(langCode, state)
-        console.log(`[realtime:${langCode}] client created`)
+        clients.set(langCode, translator)
+        console.log(`[realtime:${langCode}] translator created`)
       } catch (err) {
-        console.error(`[speaker] failed to create client for ${langCode}:`, err)
+        console.error(`[speaker] failed to create translator for ${langCode}:`, err)
       }
     }
 
-    // Forced-commit loop: every interval, for each language client that isn't
-    // mid-response and has enough buffered speech, commit the slice and ask for
-    // its translation. Self-paced — a busy client just keeps accumulating audio.
-    session.flushTimer = setInterval(() => {
-      for (const [, state] of session.clients) {
-        if (state.isResponding || state.bufferedMs < MIN_COMMIT_MS) continue
-        try {
-          state.rt.send({ type: 'input_audio_buffer.commit' } as any)
-          state.rt.send({ type: 'response.create' } as any)
-          state.isResponding = true
-          state.bufferedMs = 0
-        } catch {
-          // client may have disconnected
-        }
-      }
-    }, FORCED_COMMIT_INTERVAL_MS)
-
-    // Emit session status only after all RTClients are created
+    // Emit session status only after all translators are created
     io.of('/listener').to(`session:${sessionId}`).emit('session:status', {
       sessionId,
       isLive: true,
@@ -251,7 +154,7 @@ speakerNS.on('connection', (socket) => {
     })
   })
 
-  // Receive audio from speaker and fork to all language clients
+  // Receive audio from speaker and fork to all language translators
   socket.on('speaker:audio', (payload: { pcm16Base64: string }) => {
     const sessionId = socket.data.sessionId as string | undefined
     if (!sessionId) return
@@ -259,26 +162,16 @@ speakerNS.on('connection', (socket) => {
     const session = sessions.get(sessionId)
     if (!session) return
 
-    const audioBuffer = Buffer.from(payload.pcm16Base64, 'base64')
-    const base64 = audioBuffer.toString('base64')
-
     session.audioChunksSent++
     if (session.audioChunksSent === 1 || session.audioChunksSent % 100 === 0) {
-      console.log(`[speaker] audio chunk #${session.audioChunksSent} → ${session.clients.size} RTClient(s) (${audioBuffer.length} bytes)`)
+      const bytes = Buffer.from(payload.pcm16Base64, 'base64').length
+      console.log(
+        `[speaker] audio chunk #${session.audioChunksSent} → ${session.clients.size} translator(s) (${bytes} bytes)`,
+      )
     }
 
-    // PCM16 mono @ 24kHz → ms = bytes / 2 samples / 24000 * 1000
-    const chunkMs = (audioBuffer.length / 2 / 24000) * 1000
-    for (const [, state] of session.clients) {
-      try {
-        state.rt.send({
-          type: 'input_audio_buffer.append',
-          audio: base64,
-        })
-        state.bufferedMs += chunkMs
-      } catch {
-        // client may have disconnected
-      }
+    for (const [, translator] of session.clients) {
+      translator.sendAudio(payload.pcm16Base64)
     }
   })
 
@@ -343,8 +236,8 @@ listenerNS.on('connection', (socket) => {
     // Confirm to speaker which languages are being listened to
     const session = sessions.get(sessionId)
     if (session) {
-      const hasClients = session.clients.has(languageCode)
-      console.log(`[listener] language "${languageCode}" has RTClient: ${hasClients}`)
+      const hasClient = session.clients.has(languageCode)
+      console.log(`[listener] language "${languageCode}" has translator: ${hasClient}`)
     } else {
       console.warn(`[listener] session ${sessionId} not found — speaker may not have joined yet`)
     }
@@ -362,10 +255,9 @@ function cleanupSession(sessionId: string | undefined, ioServer: SocketIOServer)
   if (!session) return
 
   console.log('[server] cleaning up session:', sessionId)
-  if (session.flushTimer) clearInterval(session.flushTimer)
-  for (const [langCode, state] of session.clients) {
+  for (const [langCode, translator] of session.clients) {
     try {
-      state.rt.close({ code: 1000, reason: 'Session ended' })
+      translator.close()
     } catch {
       // ignore
     }
@@ -394,16 +286,18 @@ app.prepare().then(() => {
     // Debug endpoint — inspect in-memory session state without Socket.IO admin UI
     if (req.method === 'GET' && req.url === '/api/debug-session') {
       const payload = {
+        defaultProvider: getTranslationProvider(),
         activeSessions: Array.from(sessions.entries()).map(([id, s]) => ({
           sessionId: id,
           speakerSocketId: s.speakerSocketId,
+          provider: s.provider,
           languages: s.languages,
-          rtClients: s.languages.map((lang) => ({
+          translators: s.languages.map((lang) => ({
             language: lang,
             connected: s.clients.has(lang),
           })),
           audioChunksSentFromSpeaker: s.audioChunksSent,
-          audioChunksFromOpenAI: s.audioChunksFromOpenAI,
+          audioChunksFromProvider: s.audioChunksFromProvider,
         })),
       }
       res.writeHead(200, { 'Content-Type': 'application/json' })

@@ -1,5 +1,8 @@
 import { create } from 'zustand'
-import type { TranscriptBlock, TranslationStream } from '@/types'
+import type { TranscriptBlock, TranslationStream, TranslationProvider } from '@/types'
+
+const DEFAULT_PROVIDER: TranslationProvider =
+  process.env.NEXT_PUBLIC_TRANSLATION_PROVIDER === 'gemini' ? 'gemini' : 'openai'
 
 interface AppState {
   // Audio
@@ -33,6 +36,10 @@ interface AppState {
   // Speaker is broadcasting
   speakerIsLive: boolean
   setSpeakerIsLive: (live: boolean) => void
+
+  // Selected translation provider (speaker chooses before broadcasting)
+  translationProvider: TranslationProvider
+  setTranslationProvider: (provider: TranslationProvider) => void
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -75,4 +82,8 @@ export const useAppStore = create<AppState>((set) => ({
   // Speaker live state
   speakerIsLive: false,
   setSpeakerIsLive: (live) => set({ speakerIsLive: live }),
+
+  // Translation provider
+  translationProvider: DEFAULT_PROVIDER,
+  setTranslationProvider: (provider) => set({ translationProvider: provider }),
 }))
