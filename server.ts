@@ -77,6 +77,20 @@ speakerNS.on('connection', (socket) => {
     }
     sessionStore.delete(sessionId)
 
+    // Reconnect/restart with the same stable ID: tear down any old translators
+    // for this session before recreating them (avoids leaking OpenAI/Gemini WS).
+    const existing = sessions.get(sessionId)
+    if (existing) {
+      console.log(`[speaker] replacing existing session ${sessionId} (${existing.clients.size} translator(s))`)
+      for (const [, translator] of existing.clients) {
+        try {
+          translator.close()
+        } catch {
+          // ignore
+        }
+      }
+    }
+
     // Provider is chosen by the speaker in the UI (falls back to env default).
     const provider: TranslationProvider = payload.provider ?? getTranslationProvider()
 

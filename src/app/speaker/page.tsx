@@ -11,6 +11,7 @@ import { useTranslationSession } from '@/hooks/use-translation-session'
 import { SUPPORTED_LANGUAGES } from '@/lib/languages'
 
 const ACCESS_CODE_STORAGE_KEY = 'speaker-access-code'
+const SESSION_ID_STORAGE_KEY = 'speaker-session-id'
 
 export default function SpeakerPage() {
   const [selectedLanguages, setSelectedLanguages] = useState<string[]>(['pt', 'en', 'es'])
@@ -20,8 +21,19 @@ export default function SpeakerPage() {
     typeof window !== 'undefined' ? sessionStorage.getItem(ACCESS_CODE_STORAGE_KEY) ?? '' : '',
   )
 
-  const { sessionId, isStreaming, isCapturing, isConnected, error, micFrequencies, startSession, stopSession } =
-    useTranslationSession(selectedLanguages, accessCode)
+  // Stable session ID persisted in localStorage so the listener URL can be shared
+  // ahead of time and stays the same across restarts/disconnects.
+  const [broadcastSessionId] = useState<string>(() => {
+    if (typeof window === 'undefined') return ''
+    const existing = localStorage.getItem(SESSION_ID_STORAGE_KEY)
+    if (existing) return existing
+    const id = crypto.randomUUID()
+    localStorage.setItem(SESSION_ID_STORAGE_KEY, id)
+    return id
+  })
+
+  const { isStreaming, isCapturing, isConnected, error, micFrequencies, startSession, stopSession } =
+    useTranslationSession(selectedLanguages, accessCode, broadcastSessionId)
 
   const handleUnlock = (code: string) => {
     sessionStorage.setItem(ACCESS_CODE_STORAGE_KEY, code)
@@ -32,7 +44,10 @@ export default function SpeakerPage() {
     return <SpeakerAccessGate onUnlock={handleUnlock} />
   }
 
-  const listenerUrl = sessionId ? `${typeof window !== 'undefined' ? window.location.origin : ''}/listen?session=${sessionId}` : null
+  // Available as soon as the page loads — shareable before broadcasting starts.
+  const listenerUrl = broadcastSessionId
+    ? `${typeof window !== 'undefined' ? window.location.origin : ''}/listen?session=${broadcastSessionId}`
+    : null
 
   const toggleLanguage = (code: string) => {
     setSelectedLanguages((prev) =>

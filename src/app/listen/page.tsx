@@ -2,13 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { Sidebar } from '@/components/sidebar'
-import { TopNav } from '@/components/top-nav'
-import { StreamCard } from '@/components/stream-card'
-import { AudioPlayer } from '@/components/audio-player'
 import { AudioVisualizer } from '@/components/audio-visualizer'
-import { LiveTranscript } from '@/components/live-transcript'
-import { BottomNav } from '@/components/bottom-nav'
 import { useSocket } from '@/hooks/use-socket'
 import { useAudioPlayer } from '@/hooks/use-audio-player'
 import { useAppStore } from '@/stores/app-store'
@@ -29,13 +23,11 @@ function ListenPageContent() {
 
   const {
     volume,
-    isConnected,
     setConnected,
     activeLanguageCode,
     setActiveLanguageCode,
     availableStreams,
     setAvailableStreams,
-    transcripts,
     addTranscript,
     clearTranscripts,
   } = useAppStore()
@@ -204,133 +196,61 @@ function ListenPageContent() {
   }, [audioPlayer])
 
   const activeLanguage = SUPPORTED_LANGUAGES.find((l) => l.code === activeLanguageCode)
-  const activeStreamLabel = activeLanguage ? `${activeLanguage.flag} ${activeLanguage.label}` : 'Select a stream'
 
   const displayStreams =
     availableStreams.length > 0
       ? availableStreams.map((s) => ({
           language: `${s.flag} ${s.label}`,
-          listeners: s.listenerCount > 0 ? `${s.listenerCount}` : undefined,
           active: s.languageCode === activeLanguageCode,
           languageCode: s.languageCode,
         }))
       : SUPPORTED_LANGUAGES.slice(0, 3).map((l, i) => ({
           language: `${l.flag} ${l.label}`,
-          listeners: undefined,
           active: i === 0,
           languageCode: l.code,
         }))
 
-  const visibleTranscripts = transcripts.filter(
-    (t) => t.languageCode === activeLanguageCode && (t.translated || t.original),
-  )
-
   return (
-    <div className="flex min-h-screen bg-[#f9f9ff] text-[#191c21]">
-      <Sidebar />
+    <div className="flex min-h-screen flex-col items-center justify-center gap-10 bg-black px-6 py-12 text-white">
+      {/* Language options */}
+      <div className="flex flex-wrap items-center justify-center gap-3">
+        {displayStreams.map((s) => (
+          <button
+            key={s.languageCode}
+            onClick={() => handleSelectLanguage(s.languageCode)}
+            className={`rounded-full px-5 py-2.5 text-sm font-semibold transition-all active:scale-95 ${
+              s.active
+                ? 'bg-[#90efef] text-black'
+                : 'border border-white/20 text-white/70 hover:border-white/50 hover:text-white'
+            }`}
+          >
+            {s.language}
+          </button>
+        ))}
+      </div>
 
-      <main className="flex flex-1 flex-col md:ml-64">
-        <TopNav />
-
-        <div className="flex flex-1 flex-col gap-6 px-4 pb-44 pt-4 md:flex-row md:gap-8 md:p-8 md:pb-8">
-          {/* Left column */}
-          <section className="flex flex-col gap-4 md:w-80 md:gap-6">
-            {/* Session status — mobile only */}
-            <div className="flex flex-col items-center gap-3 md:hidden">
-              <div
-                className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 ${
-                  isConnected ? 'bg-[#90efef]/30 text-[#006a6a]' : 'bg-[#e7e8f0] text-[#424752]'
-                }`}
-              >
-                <span className="relative flex h-2 w-2">
-                  {isConnected && (
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#006a6a] opacity-75" />
-                  )}
-                  <span
-                    className={`relative inline-flex h-2 w-2 rounded-full ${isConnected ? 'bg-[#006a6a]' : 'bg-[#c2c6d4]'}`}
-                  />
-                </span>
-                <span className="text-[10px] font-bold uppercase tracking-widest">
-                  {isConnected ? 'LIVE SESSION' : 'WAITING'}
-                </span>
-              </div>
-            </div>
-
-            {/* Available Streams */}
-            <div>
-              <div className="mb-3 flex items-end justify-between">
-                <h2
-                  className="text-lg font-bold md:text-xl"
-                  style={{ fontFamily: 'Manrope, sans-serif' }}
-                >
-                  Available Streams
-                </h2>
-              </div>
-
-              {/* Mobile: horizontal scroll */}
-              <div className="no-scrollbar -mx-4 flex gap-3 overflow-x-auto px-4 pb-1 md:hidden">
-                {displayStreams.map((s) => (
-                  <StreamCard
-                    key={s.languageCode}
-                    language={s.language}
-                    listeners={s.listeners}
-                    active={s.active}
-                    variant="card"
-                    onClick={() => handleSelectLanguage(s.languageCode)}
-                  />
-                ))}
-              </div>
-
-              {/* Desktop: vertical list */}
-              <div className="hidden space-y-3 md:block">
-                {displayStreams.map((s) => (
-                  <StreamCard
-                    key={s.languageCode}
-                    language={s.language}
-                    active={s.active}
-                    variant="list"
-                    onClick={() => handleSelectLanguage(s.languageCode)}
-                  />
-                ))}
-              </div>
-            </div>
-
-            {/* Audio Visualizer — mobile only */}
-            <div className="md:hidden">
-              <AudioVisualizer
-                frequencies={analyserData ?? undefined}
-                label={audioPlayer.isPlaying ? `Playing ${activeLanguage?.label ?? ''}` : 'Waiting for audio…'}
-              />
-            </div>
-
-            {/* Audio Player — desktop only */}
-            <div className="mt-auto hidden md:block">
-              <AudioPlayer
-                isPlaying={audioPlayer.isPlaying}
-                label={`Playing: ${activeLanguage?.label ?? 'Select stream'}`}
-                onPlayPause={handlePlayPause}
-              />
-            </div>
-          </section>
-
-          {/* Right column — transcript */}
-          <div className="flex flex-1 flex-col">
-            <LiveTranscript transcripts={visibleTranscripts} isConnected={isConnected} />
-          </div>
-        </div>
-      </main>
-
-      {/* Mini player — mobile only */}
-      <div className="md:hidden">
-        <AudioPlayer
-          mini
-          isPlaying={audioPlayer.isPlaying}
-          label={activeStreamLabel}
-          onPlayPause={handlePlayPause}
+      {/* Wave — signals that audio is being received */}
+      <div className="w-full max-w-md">
+        <AudioVisualizer
+          dark
+          frequencies={analyserData ?? undefined}
+          label={audioPlayer.isPlaying ? (activeLanguage?.label ?? '') : 'aguardando áudio…'}
         />
       </div>
 
-      <BottomNav />
+      {/* Play / pause */}
+      <button
+        onClick={handlePlayPause}
+        aria-label={audioPlayer.isPlaying ? 'Pausar' : 'Tocar'}
+        className="flex h-14 w-14 items-center justify-center rounded-full bg-white/10 text-white transition-all active:scale-95 hover:bg-white/20"
+      >
+        <span
+          className="material-symbols-outlined text-3xl"
+          style={{ fontVariationSettings: "'FILL' 1" }}
+        >
+          {audioPlayer.isPlaying ? 'pause' : 'play_arrow'}
+        </span>
+      </button>
     </div>
   )
 }

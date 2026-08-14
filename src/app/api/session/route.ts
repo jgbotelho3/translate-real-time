@@ -8,7 +8,7 @@ export const runtime = 'nodejs'
 // See src/lib/session-store.ts for rationale.
 
 export async function POST(request: Request) {
-  let body: { languages?: string[]; code?: string }
+  let body: { languages?: string[]; code?: string; sessionId?: string }
   try {
     body = await request.json()
   } catch {
@@ -23,10 +23,10 @@ export async function POST(request: Request) {
 
   const languages = Array.isArray(body.languages) && body.languages.length > 0 ? body.languages : ['es']
 
-  // Session ID used to correlate speaker:join with the chosen languages.
-  // The actual OpenAI connection is opened server-side in server.ts using
-  // the OPENAI_API_KEY — no ephemeral key needed for a server-proxy architecture.
-  const sessionId = randomUUID()
+  // Reuse the speaker's stable session ID when provided (so the listener URL
+  // stays the same across restarts/disconnects); otherwise generate a new one.
+  const sessionId =
+    typeof body.sessionId === 'string' && body.sessionId.length > 0 ? body.sessionId : randomUUID()
   sessionStore.set(sessionId, { languages, createdAt: Date.now() })
 
   return NextResponse.json({ sessionId, languages })

@@ -14,9 +14,11 @@ const staticBars = [
 interface AudioVisualizerProps {
   frequencies?: Uint8Array | null
   label?: string
+  // Dark variant for use on a black/minimal background.
+  dark?: boolean
 }
 
-export function AudioVisualizer({ frequencies, label }: AudioVisualizerProps) {
+export function AudioVisualizer({ frequencies, label, dark = false }: AudioVisualizerProps) {
   const bars = frequencies
     ? Array.from({ length: 10 }, (_, i) => {
         const idx = Math.floor((i / 10) * (frequencies.length / 2))
@@ -26,8 +28,10 @@ export function AudioVisualizer({ frequencies, label }: AudioVisualizerProps) {
     : staticBars
 
   return (
-    <section className="flex flex-col items-center py-4 bg-[#f2f3fb] rounded-2xl">
-      <div className="flex items-center justify-center gap-1 w-full px-10 h-12">
+    <section
+      className={`flex flex-col items-center rounded-2xl py-4 ${dark ? 'bg-transparent' : 'bg-[#f2f3fb]'}`}
+    >
+      <div className="flex h-12 w-full items-center justify-center gap-1 px-10">
         {bars.map((bar, i) => (
           <div
             key={i}
@@ -36,7 +40,11 @@ export function AudioVisualizer({ frequencies, label }: AudioVisualizerProps) {
           />
         ))}
       </div>
-      <p className="text-[10px] text-[#006a6a] font-bold uppercase mt-2 tracking-tighter">
+      <p
+        className={`mt-2 text-[10px] font-bold uppercase tracking-tighter ${
+          dark ? 'text-[#90efef]' : 'text-[#006a6a]'
+        }`}
+      >
         {label ?? 'Processing Neural audio flow'}
       </p>
     </section>
