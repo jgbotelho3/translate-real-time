@@ -211,7 +211,11 @@ function ListenPageContent() {
         }))
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-10 bg-black px-6 py-12 text-white">
+    <div className="relative flex min-h-screen flex-col items-center justify-center gap-10 bg-black px-6 py-12 text-white">
+      {/* Brand logo — top-left */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/logo.svg" alt="Beplay Translate" className="absolute left-6 top-6 h-8 w-auto" />
+
       {/* Language options */}
       <div className="flex flex-wrap items-center justify-center gap-3">
         {displayStreams.map((s) => (
