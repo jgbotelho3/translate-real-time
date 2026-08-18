@@ -19,6 +19,8 @@ export function useAudioPlayer(volume: number) {
   // Chunks received while AudioContext is suspended are held here and
   // replayed once the context resumes (user gesture).
   const pendingChunksRef = useRef<string[]>([])
+  // iOS: audio output must be "unlocked" with a silent buffer inside a gesture.
+  const unlockedRef = useRef(false)
 
   const scheduleChunk = useCallback((ctx: AudioContext, base64: string) => {
     const float32 = base64Pcm16ToFloat32(base64)
@@ -60,7 +62,23 @@ export function useAudioPlayer(volume: number) {
   // and drains any chunks that arrived during suspension.
   const ensureContext = useCallback(() => {
     if (!audioContextRef.current) {
-      const ctx = new AudioContext({ sampleRate: SAMPLE_RATE })
+      // iOS Safari: don't force a sample rate (it often ignores it or goes
+      // silent). The context runs at the hardware rate; each source buffer is
+      // created at SAMPLE_RATE (24kHz) and WebAudio resamples it on playback.
+      // Also fall back to webkitAudioContext for older iOS.
+      const Ctx =
+        window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+      const ctx = new Ctx()
+
+      // iOS 16.4+: route to the playback category so audio isn't silenced by the
+      // hardware mute switch and plays at media volume.
+      try {
+        const audioSession = (navigator as unknown as { audioSession?: { type: string } }).audioSession
+        if (audioSession) audioSession.type = 'playback'
+      } catch {
+        // not supported — ignore
+      }
+
       const gain = ctx.createGain()
       const analyser = ctx.createAnalyser()
       analyser.fftSize = 256
@@ -74,6 +92,22 @@ export function useAudioPlayer(volume: number) {
     }
 
     const ctx = audioContextRef.current
+
+    // iOS: play a 1-frame silent buffer once, within the user gesture, to unlock
+    // audio output. resume() alone is often not enough on iOS.
+    if (!unlockedRef.current) {
+      try {
+        const silent = ctx.createBuffer(1, 1, ctx.sampleRate)
+        const src = ctx.createBufferSource()
+        src.buffer = silent
+        src.connect(ctx.destination)
+        src.start(0)
+        unlockedRef.current = true
+      } catch {
+        // ignore
+      }
+    }
+
     if (ctx.state === 'suspended') {
       ctx.resume().then(() => {
         // Drain chunks that arrived during suspension
