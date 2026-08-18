@@ -8,6 +8,13 @@ import { float32ToBase64Pcm16 } from '@/lib/audio-utils'
 const BUFFER_SIZE = 4096 // must be power of two
 const DEFAULT_SAMPLE_RATE = 24000 // OpenAI Realtime; Gemini Live Translate uses 16000
 
+// Voice-activity gate: streaming translators (e.g. Gemini Live) loop/repeat the
+// last phrase when fed continuous silence. So we only forward chunks whose energy
+// is above a threshold, plus a short hangover so word endings / brief pauses
+// aren't clipped. Below that, nothing is sent and the model stays quiet.
+const SILENCE_RMS_THRESHOLD = 0.015
+const SILENCE_HANGOVER_MS = 500
+
 interface UseMicrophoneOptions {
   onAudioChunk: (base64: string) => void
   onAnalyserData?: (data: Uint8Array) => void
@@ -26,6 +33,7 @@ export function useMicrophone({ onAudioChunk, onAnalyserData, sampleRate = DEFAU
   const analyserRef = useRef<AnalyserNode | null>(null)
   const animFrameRef = useRef<number | null>(null)
   const sampleBufferRef = useRef<Float32Array>(new Float32Array(0))
+  const lastVoiceAtRef = useRef(0)
 
   const startCapture = useCallback(async () => {
     setError(null)
@@ -64,7 +72,18 @@ export function useMicrophone({ onAudioChunk, onAnalyserData, sampleRate = DEFAU
         let offset = 0
         while (offset + chunkSize <= merged.length) {
           const chunk = merged.slice(offset, offset + chunkSize)
-          onAudioChunk(float32ToBase64Pcm16(chunk))
+
+          // Voice-activity gate — skip near-silent chunks so the translator
+          // isn't fed continuous silence (which makes it loop the last phrase).
+          let sumSq = 0
+          for (let i = 0; i < chunk.length; i++) sumSq += chunk[i] * chunk[i]
+          const rms = Math.sqrt(sumSq / chunk.length)
+          const now = performance.now()
+          if (rms >= SILENCE_RMS_THRESHOLD) lastVoiceAtRef.current = now
+          if (now - lastVoiceAtRef.current <= SILENCE_HANGOVER_MS) {
+            onAudioChunk(float32ToBase64Pcm16(chunk))
+          }
+
           offset += chunkSize
         }
         sampleBufferRef.current = merged.slice(offset)
