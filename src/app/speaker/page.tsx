@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { Sidebar } from '@/components/sidebar'
 import { TopNav } from '@/components/top-nav'
 import { AudioVisualizer } from '@/components/audio-visualizer'
@@ -14,6 +15,24 @@ const ACCESS_CODE_STORAGE_KEY = 'speaker-access-code'
 const SESSION_ID_STORAGE_KEY = 'speaker-session-id'
 
 export default function SpeakerPage() {
+  return (
+    <Suspense
+      fallback={<div className="flex min-h-screen items-center justify-center bg-[#f9f9ff]">Loading…</div>}
+    >
+      <SpeakerPageContent />
+    </Suspense>
+  )
+}
+
+function SpeakerPageContent() {
+  const searchParams = useSearchParams()
+  // Embed mode: the host app passes token/event/room via query. `token` is the
+  // transmission id (replaces the internal UUID); event/room are display labels.
+  const token = searchParams.get('token')
+  const event = searchParams.get('event')
+  const room = searchParams.get('room')
+  const isEmbed = !!token
+
   const [selectedLanguages, setSelectedLanguages] = useState<string[]>(['pt', 'en', 'es'])
   // Verified access code — restored from sessionStorage so a refresh keeps the
   // speaker unlocked within the same browser session.
@@ -22,7 +41,7 @@ export default function SpeakerPage() {
   )
 
   // Stable session ID persisted in localStorage so the listener URL can be shared
-  // ahead of time and stays the same across restarts/disconnects.
+  // ahead of time and stays the same across restarts/disconnects (standalone mode).
   const [broadcastSessionId] = useState<string>(() => {
     if (typeof window === 'undefined') return ''
     const existing = localStorage.getItem(SESSION_ID_STORAGE_KEY)
@@ -32,21 +51,25 @@ export default function SpeakerPage() {
     return id
   })
 
+  // Embed → the external token is the session id; otherwise the local UUID.
+  const sessionId = isEmbed ? (token as string) : broadcastSessionId
+
   const { isStreaming, isCapturing, isConnected, error, micFrequencies, startSession, stopSession } =
-    useTranslationSession(selectedLanguages, accessCode, broadcastSessionId)
+    useTranslationSession(selectedLanguages, accessCode, sessionId, isEmbed)
 
   const handleUnlock = (code: string) => {
     sessionStorage.setItem(ACCESS_CODE_STORAGE_KEY, code)
     setAccessCode(code)
   }
 
-  if (!accessCode) {
+  // Embed mode skips the password gate (authorization delegated to the host app).
+  if (!isEmbed && !accessCode) {
     return <SpeakerAccessGate onUnlock={handleUnlock} />
   }
 
   // Available as soon as the page loads — shareable before broadcasting starts.
-  const listenerUrl = broadcastSessionId
-    ? `${typeof window !== 'undefined' ? window.location.origin : ''}/listen?session=${broadcastSessionId}`
+  const listenerUrl = sessionId
+    ? `${typeof window !== 'undefined' ? window.location.origin : ''}/listen?${isEmbed ? 'token' : 'session'}=${sessionId}`
     : null
 
   const toggleLanguage = (code: string) => {
@@ -75,6 +98,20 @@ export default function SpeakerPage() {
               <p className="mt-1 text-sm text-[#424752]">
                 Speak and broadcast simultaneously to multiple languages
               </p>
+              {isEmbed && (event || room) && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {event && (
+                    <span className="rounded-full bg-[#ecedf6] px-3 py-1 text-xs font-semibold text-[#00488d]">
+                      {event}
+                    </span>
+                  )}
+                  {room && (
+                    <span className="rounded-full bg-[#ecedf6] px-3 py-1 text-xs font-semibold text-[#00488d]">
+                      {room}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
             {isStreaming && (
               <div className="flex items-center gap-2 rounded-full bg-[#90efef]/30 px-4 py-2 text-[#006a6a]">

@@ -11,6 +11,7 @@ export function useTranslationSession(
   selectedLanguageCodes: string[],
   accessCode: string,
   stableSessionId: string,
+  embed = false,
 ) {
   const [isStreaming, setIsStreaming] = useState(false)
   const [sessionId, setSessionIdLocal] = useState<string | null>(null)
@@ -48,7 +49,12 @@ export function useTranslationSession(
       const res = await fetch('/api/session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ languages: selectedLanguageCodes, code: accessCode, sessionId: stableSessionId }),
+        body: JSON.stringify({
+          languages: selectedLanguageCodes,
+          code: accessCode,
+          sessionId: stableSessionId,
+          embed,
+        }),
       })
 
       if (!res.ok) {
@@ -110,6 +116,7 @@ export function useTranslationSession(
     selectedLanguageCodes,
     accessCode,
     stableSessionId,
+    embed,
     provider,
     socketRef,
     startCapture,

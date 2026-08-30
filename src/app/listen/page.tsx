@@ -19,7 +19,8 @@ export default function ListenPage() {
 
 function ListenPageContent() {
   const searchParams = useSearchParams()
-  const sessionId = searchParams.get('session')
+  // Accept `token` (embed flow) as an alias for `session` (direct/share flow).
+  const sessionId = searchParams.get('token') ?? searchParams.get('session')
 
   const {
     volume,
