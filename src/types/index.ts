@@ -59,3 +59,11 @@ export interface ListenerSelectPayload {
   sessionId: string
   languageCode: string
 }
+
+export interface ChatJoinPayload {
+  roomId: string
+  language: string
+  provider?: TranslationProvider
+  /** Access code — required only to open a new room. */
+  code?: string
+}

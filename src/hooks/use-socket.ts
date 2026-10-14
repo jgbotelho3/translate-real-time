@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { io, type Socket } from 'socket.io-client'
 
-type Namespace = '/speaker' | '/listener'
+type Namespace = '/speaker' | '/listener' | '/chat'
 
 export function useSocket(namespace: Namespace) {
   const socketRef = useRef<Socket | null>(null)

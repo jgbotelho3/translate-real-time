@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation'
 const navItems = [
   { icon: 'home', label: 'Home', href: '/' },
   { icon: 'mic', label: 'Speaker Mode', href: '/speaker' },
+  { icon: 'forum', label: 'Conversa 1-1', href: '/chat' },
 ]
 
 const bottomItems = [
