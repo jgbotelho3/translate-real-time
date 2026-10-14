@@ -17,6 +17,7 @@ import type {
   AudioChunkPayload,
   TranscriptPayload,
   TranslationProvider,
+  ChatJoinPayload,
 } from './src/types'
 
 const port = parseInt(process.env.PORT || '3000', 10)
@@ -260,6 +261,92 @@ listenerNS.on('connection', (socket) => {
   socket.on('disconnect', () => {
     console.log('[listener] disconnected:', socket.id)
   })
+})
+
+// ── /chat namespace (private 1-1 conversation) ────────────────────────────────
+// Each participant owns a translator targeting THEIR language, fed with the
+// OTHER participant's mic audio. Output goes only to the owner's socket.
+interface ChatRoom {
+  provider: TranslationProvider
+  participants: Map<string, { language: string; translator: RealtimeTranslator }>
+}
+
+const chatRooms = new Map<string, ChatRoom>()
+const chatNS = io.of('/chat')
+
+function leaveChat(socketId: string, roomId: string | undefined) {
+  const room = roomId ? chatRooms.get(roomId) : undefined
+  const p = room?.participants.get(socketId)
+  if (!room || !p) return
+  try {
+    p.translator.close()
+  } catch {
+    // ignore
+  }
+  room.participants.delete(socketId)
+  if (room.participants.size === 0) chatRooms.delete(roomId!)
+  else chatNS.to(roomId!).emit('chat:peers', { count: room.participants.size })
+  console.log(`[chat] ${socketId} left room ${roomId}`)
+}
+
+chatNS.on('connection', (socket) => {
+  socket.on('chat:join', (payload: ChatJoinPayload) => {
+    const { roomId, language } = payload
+    leaveChat(socket.id, socket.data.roomId)
+
+    let room = chatRooms.get(roomId)
+    if (!room) {
+      // Only the access-code holder can open a room (it spends provider credits);
+      // the guest joins an existing room via the shared link.
+      const expected = process.env.SPEAKER_ACCESS_CODE
+      if (!expected || payload.code !== expected) {
+        socket.emit('chat:error', { message: 'Conversa não encontrada ou encerrada.' })
+        return
+      }
+      room = { provider: payload.provider ?? getTranslationProvider(), participants: new Map() }
+      chatRooms.set(roomId, room)
+    }
+    if (room.participants.size >= 2) {
+      socket.emit('chat:error', { message: 'Esta conversa já tem dois participantes.' })
+      return
+    }
+
+    const translator = createTranslator(
+      language,
+      room.provider,
+      {
+        onAudioDelta: (delta) => {
+          const chunk: AudioChunkPayload = { languageCode: language, pcm16Base64: delta }
+          socket.emit('audio:chunk', chunk)
+        },
+        onOutputTranscript: () => {},
+        onInputTranscript: () => {},
+        onError: (err) => console.error(`[chat:${roomId}:${language}] error:`, err),
+      },
+      { openaiClient, getGenai },
+    )
+    room.participants.set(socket.id, { language, translator })
+    socket.data.roomId = roomId
+    socket.join(roomId)
+    console.log(`[chat] ${socket.id} joined room ${roomId} (${language}, ${room.provider})`)
+    chatNS.to(roomId).emit('chat:peers', { count: room.participants.size })
+  })
+
+  socket.on('chat:audio', (payload: { pcm16Base64: string }) => {
+    const room = chatRooms.get(socket.data.roomId)
+    if (!room) return
+    for (const [id, p] of room.participants) {
+      if (id !== socket.id) p.translator.sendAudio(payload.pcm16Base64)
+    }
+  })
+
+  socket.on('chat:leave', () => {
+    leaveChat(socket.id, socket.data.roomId)
+    socket.leave(socket.data.roomId)
+    socket.data.roomId = undefined
+  })
+
+  socket.on('disconnect', () => leaveChat(socket.id, socket.data.roomId))
 })
 
 // ─── Cleanup helper ───────────────────────────────────────────────────────────
