@@ -8,6 +8,8 @@ import { AudioVisualizer } from '@/components/audio-visualizer'
 import { BottomNav } from '@/components/bottom-nav'
 import { SpeakerAccessGate } from '@/components/speaker-access-gate'
 import { ProviderSelect } from '@/components/provider-select'
+import { AudioInputSelect } from '@/components/audio-input-select'
+import { useAudioInputs } from '@/hooks/use-audio-inputs'
 import { useTranslationSession } from '@/hooks/use-translation-session'
 import { SUPPORTED_LANGUAGES } from '@/lib/languages'
 
@@ -54,8 +56,9 @@ function SpeakerPageContent() {
   // Embed → the external token is the session id; otherwise the local UUID.
   const sessionId = isEmbed ? (token as string) : broadcastSessionId
 
+  const audioInputs = useAudioInputs()
   const { isStreaming, isCapturing, isConnected, error, micFrequencies, startSession, stopSession } =
-    useTranslationSession(selectedLanguages, accessCode, sessionId, isEmbed)
+    useTranslationSession(selectedLanguages, accessCode, sessionId, isEmbed, audioInputs.deviceId)
 
   const handleUnlock = (code: string) => {
     sessionStorage.setItem(ACCESS_CODE_STORAGE_KEY, code)
@@ -126,6 +129,9 @@ function SpeakerPageContent() {
 
           {/* Provider selector — locked once broadcasting starts */}
           <ProviderSelect disabled={isStreaming} />
+
+          {/* Audio source (mic, USB interface from the mixing console…) */}
+          <AudioInputSelect inputs={audioInputs} disabled={isStreaming} />
 
           {/* Language selector */}
           <div>

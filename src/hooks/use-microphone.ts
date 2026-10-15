@@ -21,9 +21,20 @@ interface UseMicrophoneOptions {
   // Input sample rate — depends on the provider. The AudioContext resamples the
   // mic to this rate natively (no manual DSP). Fixed at capture start.
   sampleRate?: number
+  // Input device (e.g. a USB interface fed by the mixing console). Undefined = system default.
+  deviceId?: string
+  // Browser echo cancellation / noise suppression / AGC. These degrade line-level
+  // signals (mixing console), so they default to off when a specific device is picked.
+  voiceProcessing?: boolean
 }
 
-export function useMicrophone({ onAudioChunk, onAnalyserData, sampleRate = DEFAULT_SAMPLE_RATE }: UseMicrophoneOptions) {
+export function useMicrophone({
+  onAudioChunk,
+  onAnalyserData,
+  sampleRate = DEFAULT_SAMPLE_RATE,
+  deviceId,
+  voiceProcessing = !deviceId,
+}: UseMicrophoneOptions) {
   const [isCapturing, setIsCapturing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -46,7 +57,15 @@ export function useMicrophone({ onAudioChunk, onAnalyserData, sampleRate = DEFAU
       } catch {
         // not supported — ignore
       }
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+          echoCancellation: voiceProcessing,
+          noiseSuppression: voiceProcessing,
+          autoGainControl: voiceProcessing,
+        },
+        video: false,
+      })
       streamRef.current = stream
 
       const audioContext = new AudioContext({ sampleRate })
@@ -119,7 +138,7 @@ export function useMicrophone({ onAudioChunk, onAnalyserData, sampleRate = DEFAU
       console.error('[useMicrophone] error:', err)
       return false
     }
-  }, [onAudioChunk, onAnalyserData, sampleRate])
+  }, [onAudioChunk, onAnalyserData, sampleRate, deviceId, voiceProcessing])
 
   const stopCapture = useCallback(() => {
     if (animFrameRef.current !== null) {

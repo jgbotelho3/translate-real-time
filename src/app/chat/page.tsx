@@ -5,6 +5,8 @@ import { useSearchParams } from 'next/navigation'
 import { AudioVisualizer } from '@/components/audio-visualizer'
 import { SpeakerAccessGate } from '@/components/speaker-access-gate'
 import { ProviderSelect } from '@/components/provider-select'
+import { AudioInputSelect } from '@/components/audio-input-select'
+import { useAudioInputs } from '@/hooks/use-audio-inputs'
 import { useSocket } from '@/hooks/use-socket'
 import { useAudioPlayer } from '@/hooks/use-audio-player'
 import { useMicrophone } from '@/hooks/use-microphone'
@@ -67,9 +69,12 @@ function ChatPageContent() {
     [socketRef],
   )
 
+  const audioInputs = useAudioInputs()
   const { error: micError, startCapture, stopCapture } = useMicrophone({
     onAudioChunk,
     sampleRate: provider === 'gemini' ? 16000 : 24000,
+    deviceId: audioInputs.deviceId,
+    voiceProcessing: true, // keep echo cancellation: both sides play audio back
   })
 
   useEffect(() => {
@@ -178,9 +183,10 @@ function ChatPageContent() {
         ))}
       </div>
 
-      {isHost && !inCall && (
-        <div className="rounded-xl bg-white p-3">
-          <ProviderSelect />
+      {!inCall && (
+        <div className="flex flex-wrap items-end justify-center gap-4 rounded-xl bg-white p-3">
+          {isHost && <ProviderSelect />}
+          <AudioInputSelect inputs={audioInputs} />
         </div>
       )}
 

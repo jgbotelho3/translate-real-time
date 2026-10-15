@@ -12,6 +12,7 @@ export function useTranslationSession(
   accessCode: string,
   stableSessionId: string,
   embed = false,
+  deviceId?: string,
 ) {
   const [isStreaming, setIsStreaming] = useState(false)
   const [sessionId, setSessionIdLocal] = useState<string | null>(null)
@@ -40,6 +41,7 @@ export function useTranslationSession(
     onAudioChunk,
     onAnalyserData,
     sampleRate,
+    deviceId,
   })
 
   const startSession = useCallback(async () => {
