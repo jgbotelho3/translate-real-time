@@ -269,7 +269,12 @@ listenerNS.on('connection', (socket) => {
 interface ChatRoom {
   provider: TranslationProvider
   participants: Map<string, { language: string; translator: RealtimeTranslator }>
+  expiry?: NodeJS.Timeout
 }
+
+// Empty rooms survive this long so brief disconnects (mobile network, refresh)
+// and a guest arriving before the host don't hit "room not found".
+const CHAT_ROOM_IDLE_MS = 30 * 60 * 1000
 
 const chatRooms = new Map<string, ChatRoom>()
 const chatNS = io.of('/chat')
@@ -284,28 +289,45 @@ function leaveChat(socketId: string, roomId: string | undefined) {
     // ignore
   }
   room.participants.delete(socketId)
-  if (room.participants.size === 0) chatRooms.delete(roomId!)
+  if (room.participants.size === 0) scheduleRoomExpiry(roomId!, room)
   else chatNS.to(roomId!).emit('chat:peers', { count: room.participants.size })
   console.log(`[chat] ${socketId} left room ${roomId}`)
 }
 
+function scheduleRoomExpiry(roomId: string, room: ChatRoom) {
+  clearTimeout(room.expiry)
+  room.expiry = setTimeout(() => {
+    if (room.participants.size === 0) chatRooms.delete(roomId)
+  }, CHAT_ROOM_IDLE_MS)
+}
+
+// Only the access-code holder can open a room (it spends provider credits).
+function openChatRoom(payload: { roomId: string; provider?: TranslationProvider; code?: string }) {
+  const existing = chatRooms.get(payload.roomId)
+  if (existing) return existing
+  const expected = process.env.SPEAKER_ACCESS_CODE
+  if (!expected || payload.code !== expected) return undefined
+  const room: ChatRoom = { provider: payload.provider ?? getTranslationProvider(), participants: new Map() }
+  chatRooms.set(payload.roomId, room)
+  scheduleRoomExpiry(payload.roomId, room)
+  return room
+}
+
 chatNS.on('connection', (socket) => {
+  socket.on('chat:open', (payload: ChatJoinPayload) => {
+    if (!openChatRoom(payload)) socket.emit('chat:error', { message: 'Código de acesso inválido.' })
+  })
+
   socket.on('chat:join', (payload: ChatJoinPayload) => {
     const { roomId, language } = payload
     leaveChat(socket.id, socket.data.roomId)
 
-    let room = chatRooms.get(roomId)
+    const room = openChatRoom(payload)
     if (!room) {
-      // Only the access-code holder can open a room (it spends provider credits);
-      // the guest joins an existing room via the shared link.
-      const expected = process.env.SPEAKER_ACCESS_CODE
-      if (!expected || payload.code !== expected) {
-        socket.emit('chat:error', { message: 'Conversa não encontrada ou encerrada.' })
-        return
-      }
-      room = { provider: payload.provider ?? getTranslationProvider(), participants: new Map() }
-      chatRooms.set(roomId, room)
+      socket.emit('chat:error', { message: 'Conversa não encontrada ou encerrada.' })
+      return
     }
+    clearTimeout(room.expiry)
     if (room.participants.size >= 2) {
       socket.emit('chat:error', { message: 'Esta conversa já tem dois participantes.' })
       return

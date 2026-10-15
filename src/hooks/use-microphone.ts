@@ -38,6 +38,14 @@ export function useMicrophone({ onAudioChunk, onAnalyserData, sampleRate = DEFAU
   const startCapture = useCallback(async () => {
     setError(null)
     try {
+      // iOS 16.4+: the player may have set the session to 'playback', which
+      // blocks capture. 'play-and-record' allows mic + playback together.
+      try {
+        const audioSession = (navigator as unknown as { audioSession?: { type: string } }).audioSession
+        if (audioSession) audioSession.type = 'play-and-record'
+      } catch {
+        // not supported — ignore
+      }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
       streamRef.current = stream
 
@@ -104,10 +112,12 @@ export function useMicrophone({ onAudioChunk, onAnalyserData, sampleRate = DEFAU
       }
 
       setIsCapturing(true)
+      return true
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Microphone access denied'
       setError(message)
       console.error('[useMicrophone] error:', err)
+      return false
     }
   }, [onAudioChunk, onAnalyserData, sampleRate])
 

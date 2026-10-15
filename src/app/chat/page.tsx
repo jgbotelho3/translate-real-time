@@ -92,6 +92,14 @@ function ChatPageContent() {
     }
   }, [socketRef, isConnected, stopCapture])
 
+  // Host opens the room as soon as the page connects (and again on reconnect),
+  // so the guest can join via the link before the host clicks "Entrar".
+  useEffect(() => {
+    if (isHost && accessCode && isConnected) {
+      socketRef.current?.emit('chat:open', { roomId, provider, code: accessCode })
+    }
+  }, [isHost, accessCode, isConnected, roomId, provider, socketRef])
+
   // Rejoin after a socket reconnect (server dropped our translator on disconnect).
   useEffect(() => {
     if (inCall && isConnected) {
@@ -112,7 +120,7 @@ function ChatPageContent() {
   const handleJoin = async () => {
     setError(null)
     audioPlayer.ensureContext() // unlock playback within the click gesture (iOS)
-    await startCapture()
+    if (!(await startCapture())) return
     setInCall(true)
     socketRef.current?.emit('chat:join', { roomId, language, provider, code: accessCode })
   }
